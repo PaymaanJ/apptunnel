@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1 (build 2026-10-16)
+- Fixed: a start could fail with "Failed to create veth pair ... File exists" after an interrupted run, until
+  the computer was restarted. AppTunnel now offers "Clean up and try again" when it sees that error.
+- "Remove stuck tunnels..." in the menu also removes leftover tunnel interfaces, not just namespaces.
+- New helper action `links-clean`; it refuses to run while any tunnel still has apps in it.
+
 ## v1.0 (build 2026-10-16)
 - First release: GTK window to pick a WireGuard profile, choose which apps use the VPN,
   start and stop each app, and set kill switch, DNS, IPv6, host access and firewall.

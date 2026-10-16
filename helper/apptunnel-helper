@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""AppTunnel root helper v1.0 (build 2026-10-16)
+"""AppTunnel root helper v1.1 (build 2026-10-16)
 Author: Paymaan Jafari
 
 The only part of AppTunnel that runs as root. It is installed root-owned in
@@ -11,6 +11,7 @@ argument it receives, because the caller is an unprivileged program.
   list-system                  list /etc/wireguard/*.conf
   import-system NAME           copy /etc/wireguard/NAME.conf into the caller's profiles
   netns-delete vo_NAME         stop everything inside a vopono namespace and remove it
+  links-clean                  remove leftover vopono namespaces and veth links (refuses if a tunnel is in use)
 """
 import ipaddress
 import os
@@ -22,7 +23,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "1.0"
+VERSION = "1.1"
 BUILD_DATE = "2026-10-16"
 
 VOPONO_CANDIDATES = ("/usr/local/bin/vopono", "/usr/bin/vopono")
@@ -39,6 +40,7 @@ FLAGS_WITHOUT_VALUE = {"--no-killswitch", "--keep-alive", "--disable-ipv6", "--a
 FIREWALLS = {"IpTables", "NfTables"}
 NAME_RE = re.compile(r"^[A-Za-z0-9_.+=-]{1,64}$")
 NS_RE = re.compile(r"^vo_[A-Za-z0-9_-]{1,60}$")
+LINK_RE = re.compile(r"^vo_[A-Za-z0-9_-]{1,60}_[sd]$")
 BAD_KEYS = re.compile(r"^\s*(PreUp|PostUp|PreDown|PostDown)\s*=", re.I | re.M)
 
 
@@ -215,6 +217,40 @@ def cmd_netns_delete(name):
     subprocess.run(["ip", "netns", "delete", name], capture_output=True, env=env)
 
 
+def parse_netns_names(text):
+    return [line.split()[0] for line in text.splitlines() if line.split() and NS_RE.match(line.split()[0])]
+
+
+def parse_link_names(text):
+    """Names from `ip -o link show` (lines look like '12: vo_c_X_d@vo_c_X_s: <...>')."""
+    names = []
+    for line in text.splitlines():
+        match = re.match(r"^\d+:\s+([^:@\s]+)", line)
+        if match and LINK_RE.match(match.group(1)):
+            names.append(match.group(1))
+    return names
+
+
+def cmd_links_clean():
+    """Clear what a crashed or interrupted vopono run left behind, so the next start does not hit 'File exists'."""
+    caller()
+    env = {"PATH": SAFE_PATH}
+
+    def ip(*args):
+        return subprocess.run(["ip", *args], capture_output=True, text=True, env=env).stdout
+
+    namespaces = parse_netns_names(ip("netns", "list"))
+    for name in namespaces:
+        if ip("netns", "pids", name).split():
+            die(f"the tunnel {name} is still in use; close its apps first")
+    for name in namespaces:
+        subprocess.run(["ip", "netns", "delete", name], capture_output=True, env=env)
+    removed = 0
+    for name in parse_link_names(ip("-o", "link", "show")):
+        removed += subprocess.run(["ip", "link", "delete", name], capture_output=True, env=env).returncode == 0
+    print(f"removed {len(namespaces)} namespace(s) and {removed} link(s)")
+
+
 def main(argv):
     if len(argv) < 2:
         die("usage: apptunnel-helper run|list-system|import-system|netns-delete ...")
@@ -229,6 +265,8 @@ def main(argv):
         cmd_import_system(rest[0])
     elif action == "netns-delete" and len(rest) == 1:
         cmd_netns_delete(rest[0])
+    elif action == "links-clean" and not rest:
+        cmd_links_clean()
     else:
         die("unknown action or wrong number of arguments")
 

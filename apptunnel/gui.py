@@ -510,9 +510,24 @@ class MainWindow(Gtk.ApplicationWindow):
         if code in (126, 127):
             self.say(f"{name}: authorization was cancelled.")
             return
+        tail = core.log_tail(name)
+        if "File exists" in tail or "veth pair" in tail:
+            if confirm(self, f"A leftover tunnel is blocking {name}",
+                       "A tunnel from an earlier run was not cleaned up. AppTunnel can remove it and try again.",
+                       "Clean up and try again"):
+                self.say("Removing the leftover tunnel...")
+                threading.Thread(target=self.cleanup_then_start, args=(name,), daemon=True).start()
+            return
         message(self, f"{name} could not start through the VPN",
-                core.log_tail(name) or f"Exit code {code}. See the log folder in the menu.",
-                Gtk.MessageType.ERROR)
+                tail or f"Exit code {code}. See the log folder in the menu.", Gtk.MessageType.ERROR)
+
+    def cleanup_then_start(self, name):
+        try:
+            core.cleanup_stale()
+        except (ValueError, OSError) as exc:
+            GLib.idle_add(message, self, "Could not clean up", str(exc), Gtk.MessageType.WARNING)
+            return
+        GLib.idle_add(self.launch_now, name)
 
     # -- actions on apps
     def launch_now(self, name):
@@ -767,16 +782,16 @@ class MainWindow(Gtk.ApplicationWindow):
     # -- menu
     def on_cleanup(self, _item):
         names = sorted(self.snapshot_namespaces.values())
-        if not names:
-            return message(self, "No tunnels are open", "There is nothing to remove.")
-        if not confirm(self, "Remove open tunnels?",
-                       "This closes every app inside these tunnels and deletes them:\n\n" + "\n".join(names) +
-                       "\n\nUse it only if a tunnel is stuck after a crash.", "Remove"):
+        text = "This closes every app inside an open tunnel and removes tunnel pieces left over from earlier runs."
+        if names:
+            text += "\n\nOpen tunnels:\n" + "\n".join(names)
+        if not confirm(self, "Remove stuck tunnels?", text + "\n\nUse it only if apps fail to start through the VPN.", "Remove"):
             return
 
         def work():
             try:
                 core.cleanup_tunnels(names)
+                core.cleanup_stale()
             except (ValueError, OSError) as exc:
                 GLib.idle_add(self.say, str(exc))
             GLib.idle_add(self.after_stop, "Tunnels")

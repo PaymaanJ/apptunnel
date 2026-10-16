@@ -4,6 +4,6 @@ Author: Paymaan Jafari
 """
 
 APP_NAME = "AppTunnel"
-VERSION = "1.0"
+VERSION = "1.1"
 BUILD_DATE = "2026-10-16"
 AUTHOR = "Paymaan Jafari"

@@ -516,6 +516,14 @@ def cleanup_tunnels(names):
         helper_call("netns-delete", name, timeout=60)
 
 
+def cleanup_stale() -> str:
+    """Remove leftovers of interrupted runs. Refused by the helper while any tunnel is in use."""
+    result = helper_call("links-clean", timeout=60)
+    if result.returncode != 0:
+        raise ValueError(result.stderr.strip().replace("apptunnel-helper: ", "") or "Authorization was cancelled.")
+    return result.stdout.strip()
+
+
 def direct_ip() -> str:
     import urllib.request
     with urllib.request.urlopen(IP_URL, timeout=8) as reply:

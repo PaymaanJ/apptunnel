@@ -4,7 +4,7 @@ Send chosen Linux apps through a WireGuard VPN and leave everything else on your
 A small GTK window on top of [vopono](https://github.com/jamesmcm/vopono): each VPN app runs in its
 own network namespace, so if the tunnel drops that app loses its internet instead of leaking.
 
-Version 1.0 (build 2026-10-16). Author: Paymaan Jafari. License: MIT.
+Version 1.1 (build 2026-10-16). Author: Paymaan Jafari. License: MIT.
 
 ## What you can do in the window
 
@@ -94,7 +94,8 @@ logs in `~/.cache/apptunnel/`.
   Test the tunnel, then another profile, or set Firewall to iptables in Settings.
 - **App not recognised as running:** edit the app and fill **Process match** with text that appears in its
   command line, for example `/opt/google/chrome/`.
-- **Tunnel stuck after a crash:** menu, **Remove stuck tunnels...**.
+- **"Failed to create veth pair ... File exists":** a tunnel from an interrupted run was left behind. AppTunnel offers
+  **Clean up and try again**; the menu entry **Remove stuck tunnels...** does the same by hand. No reboot needed.
 
 ## Uninstall and test
 

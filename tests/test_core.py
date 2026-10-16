@@ -255,6 +255,15 @@ class HelperTests(Sandbox):
         path.mkdir(parents=True)
         return path
 
+    def test_leftover_link_detection(self):
+        text = ("1: lo: <LOOPBACK,UP> mtu 65536\n"
+                "2: enp3s0: <BROADCAST> mtu 1500\n"
+                "12: vo_c_Hh8tnG8_d@vo_c_Hh8tnG8_s: <BROADCAST,MULTICAST> mtu 1500\n"
+                "13: vo_c_Hh8tnG8_s@vo_c_Hh8tnG8_d: <BROADCAST,MULTICAST> mtu 1500\n"
+                "14: vo_other: <BROADCAST> mtu 1500\n")
+        self.assertEqual(self.h.parse_link_names(text), ["vo_c_Hh8tnG8_d", "vo_c_Hh8tnG8_s"])
+        self.assertEqual(self.h.parse_netns_names("vo_c_NPxhGXW (id: 0)\nother (id: 1)\n"), ["vo_c_NPxhGXW"])
+
     def test_namespace_and_name_patterns(self):
         self.assertTrue(self.h.NS_RE.match("vo_c_NPxhGXW"))
         self.assertFalse(self.h.NS_RE.match("../etc"))
