@@ -1,0 +1,237 @@
+#!/usr/bin/python3
+"""AppTunnel root helper v1.0 (build 2026-10-16)
+Author: Paymaan Jafari
+
+The only part of AppTunnel that runs as root. It is installed root-owned in
+/usr/local/lib/apptunnel/helper and started through pkexec (polkit), which asks
+for the admin password. It does a handful of fixed jobs and checks every
+argument it receives, because the caller is an unprivileged program.
+
+  run [KEY=VALUE ...] -- <vopono exec options> <application>
+  list-system                  list /etc/wireguard/*.conf
+  import-system NAME           copy /etc/wireguard/NAME.conf into the caller's profiles
+  netns-delete vo_NAME         stop everything inside a vopono namespace and remove it
+"""
+import ipaddress
+import os
+import pwd
+import re
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+VERSION = "1.0"
+BUILD_DATE = "2026-10-16"
+
+VOPONO_CANDIDATES = ("/usr/local/bin/vopono", "/usr/bin/vopono")
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+SYSTEM_PROFILE_DIR = "/etc/wireguard"
+
+# Only these variables are handed on from the desktop session to the app.
+ENV_ALLOWED = {
+    "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE",
+    "XDG_DATA_DIRS", "LANG", "LANGUAGE", "PULSE_SERVER",
+}
+FLAGS_WITHOUT_VALUE = {"--no-killswitch", "--keep-alive", "--disable-ipv6", "--allow-host-access"}
+FIREWALLS = {"IpTables", "NfTables"}
+NAME_RE = re.compile(r"^[A-Za-z0-9_.+=-]{1,64}$")
+NS_RE = re.compile(r"^vo_[A-Za-z0-9_-]{1,60}$")
+BAD_KEYS = re.compile(r"^\s*(PreUp|PostUp|PreDown|PostDown)\s*=", re.I | re.M)
+
+
+def die(message, code=2):
+    print(f"apptunnel-helper: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def caller():
+    """The desktop user who asked for this (set by pkexec, never taken from arguments)."""
+    raw = os.environ.get("PKEXEC_UID") or os.environ.get("SUDO_UID") or ""
+    if not raw.isdigit() or int(raw) == 0:
+        die("must be started through pkexec by a normal user")
+    try:
+        return pwd.getpwuid(int(raw))
+    except KeyError:
+        die("unknown user")
+
+
+def find_vopono():
+    for path in VOPONO_CANDIDATES:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        if st.st_uid == 0 and not st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            return path
+    die("vopono not found: install it as a root-owned file in /usr/local/bin/vopono")
+
+
+def profile_dir(pw):
+    return os.path.join(pw.pw_dir, ".config", "apptunnel", "profiles")
+
+
+def check_profile(path, pw):
+    """The profile must be one of the caller's own files inside their profiles folder."""
+    real = os.path.realpath(path)
+    base = os.path.realpath(profile_dir(pw)) + os.sep
+    if not real.startswith(base) or not real.endswith(".conf"):
+        die("profile must be inside ~/.config/apptunnel/profiles")
+    try:
+        st = os.stat(real)
+        with open(real, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read(65536)
+    except OSError as exc:
+        die(f"cannot read profile: {exc}")
+    if st.st_uid != pw.pw_uid:
+        die("profile is not owned by the calling user")
+    if BAD_KEYS.search(text):
+        die("profile contains PostUp/PreUp/PostDown/PreDown lines, which are not allowed")
+    return real
+
+
+def check_dns(value):
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    if not parts:
+        die("empty DNS value")
+    for part in parts:
+        try:
+            ipaddress.ip_address(part)
+        except ValueError:
+            die(f"not an IP address: {part}")
+    return ",".join(parts)
+
+
+def validate_exec_args(args, pw):
+    """Accept a fixed set of vopono options plus the application as the last item."""
+    out, i, have_custom, app = [], 0, False, None
+    while i < len(args):
+        arg = args[i]
+        if arg in FLAGS_WITHOUT_VALUE:
+            out.append(arg)
+            i += 1
+        elif arg in ("--custom", "--protocol", "--dns", "--firewall"):
+            if i + 1 >= len(args):
+                die(f"{arg} needs a value")
+            value = args[i + 1]
+            if arg == "--custom":
+                value, have_custom = check_profile(value, pw), True
+            elif arg == "--protocol":
+                if value.lower() != "wireguard":
+                    die("only the wireguard protocol is allowed")
+            elif arg == "--dns":
+                value = check_dns(value)
+            elif value not in FIREWALLS:
+                die("unknown firewall")
+            out += [arg, value]
+            i += 2
+        elif arg.startswith("-"):
+            die(f"option not allowed: {arg}")
+        else:
+            if i != len(args) - 1:
+                die("the application must be the last argument")
+            app = arg
+            i += 1
+    if not have_custom or not app:
+        die("a profile (--custom) and an application are required")
+    return out + [app]
+
+
+def prepare_run(argv, pw, vopono):
+    """Return (program, arguments, environment) for `run`. Separate from exec so it can be tested."""
+    if "--" not in argv:
+        die("run: missing '--'")
+    split = argv.index("--")
+    assignments, args = argv[:split], argv[split + 1:]
+    env = {
+        "PATH": SAFE_PATH, "HOME": "/root", "USER": "root", "LOGNAME": "root",
+        "SUDO_USER": pw.pw_name, "SUDO_UID": str(pw.pw_uid), "SUDO_GID": str(pw.pw_gid),
+    }
+    for item in assignments:
+        key, _, value = item.partition("=")
+        if key in ENV_ALLOWED and "\0" not in value:
+            env[key] = value
+    exec_args = validate_exec_args(args, pw)
+    return vopono, [vopono, "exec", "--user", pw.pw_name] + exec_args, env
+
+
+def cmd_run(argv):
+    pw = caller()
+    program, args, env = prepare_run(argv, pw, find_vopono())
+    os.execve(program, args, env)
+
+
+def cmd_list_system():
+    caller()
+    try:
+        names = sorted(n[:-5] for n in os.listdir(SYSTEM_PROFILE_DIR) if n.endswith(".conf"))
+    except OSError:
+        names = []
+    print("\n".join(n for n in names if NAME_RE.match(n)))
+
+
+def cmd_import_system(name):
+    pw = caller()
+    if not NAME_RE.match(name):
+        die("invalid profile name")
+    try:
+        with open(os.path.join(SYSTEM_PROFILE_DIR, name + ".conf"), "rb") as fh:
+            data = fh.read(65536)
+    except OSError as exc:
+        die(f"cannot read the system profile: {exc}")
+    if BAD_KEYS.search(data.decode("utf-8", "replace")):
+        die("profile contains PostUp/PreUp/PostDown/PreDown lines, which are not allowed")
+    # Write as the user, so a symlink planted in their folder cannot redirect a root write.
+    os.setegid(pw.pw_gid)
+    os.seteuid(pw.pw_uid)
+    folder = profile_dir(pw)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    dest = os.path.join(folder, name + ".conf")
+    try:
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        die(f"a profile named {name} already exists")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    print(f"imported {name}")
+
+
+def cmd_netns_delete(name):
+    caller()
+    if not NS_RE.match(name):
+        die("only vopono namespaces (vo_...) can be removed")
+    env = {"PATH": SAFE_PATH}
+    out = subprocess.run(["ip", "netns", "pids", name], capture_output=True, text=True, env=env).stdout
+    pids = [int(p) for p in out.split() if p.isdigit()]
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        time.sleep(1.5)
+    subprocess.run(["ip", "netns", "delete", name], capture_output=True, env=env)
+
+
+def main(argv):
+    if len(argv) < 2:
+        die("usage: apptunnel-helper run|list-system|import-system|netns-delete ...")
+    action, rest = argv[1], argv[2:]
+    if action == "--version":
+        print(f"apptunnel-helper v{VERSION} (build {BUILD_DATE})")
+    elif action == "run":
+        cmd_run(rest)
+    elif action == "list-system":
+        cmd_list_system()
+    elif action == "import-system" and len(rest) == 1:
+        cmd_import_system(rest[0])
+    elif action == "netns-delete" and len(rest) == 1:
+        cmd_netns_delete(rest[0])
+    else:
+        die("unknown action or wrong number of arguments")
+
+
+if __name__ == "__main__":
+    main(sys.argv)

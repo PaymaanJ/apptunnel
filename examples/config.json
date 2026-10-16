@@ -1,0 +1,16 @@
+{
+  "default_profile": "xorpdx",
+  "settings": {
+    "dns": "",
+    "killswitch": true,
+    "keep_alive": false,
+    "disable_ipv6": false,
+    "allow_host_access": false,
+    "firewall": "auto"
+  },
+  "apps": [
+    {"name": "Chrome", "command": "google-chrome-stable", "match": "", "profile": "", "in_start_all": true},
+    {"name": "Signal", "command": "signal-desktop", "match": "", "profile": "", "in_start_all": true},
+    {"name": "Telegram", "command": "flatpak run org.telegram.desktop", "match": "", "profile": "", "in_start_all": true}
+  ]
+}

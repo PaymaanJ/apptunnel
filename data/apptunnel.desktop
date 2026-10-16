@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AppTunnel
+GenericName=Per-app VPN
+Comment=Send chosen apps through a WireGuard VPN
+Exec=apptunnel
+Icon=apptunnel
+Terminal=false
+Categories=Network;Security;GTK;
+Keywords=vpn;wireguard;tunnel;vopono;
