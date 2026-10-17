@@ -131,27 +131,31 @@ class AppDialog(Gtk.Dialog):
         dlg.destroy()
 
     def result(self):
-        while self.run() == Gtk.ResponseType.OK:
-            name, command = self.name.get_text().strip(), self.command.get_text().strip()
-            problem = None
-            clash = self.cfg.find(name)
-            if not name:
-                problem = "Give the app a name."
-            elif clash is not None and clash is not self.original:
-                problem = f"There is already an app called '{name}'."
-            else:
-                try:
-                    core.resolve_command(command, wrap=False)
-                except ValueError as exc:
-                    problem = str(exc)
-            if problem:
-                message(self, problem, kind=Gtk.MessageType.WARNING)
-                continue
-            choice = self.profile.get_active()
-            return {"name": name, "command": command, "match": self.match.get_text().strip(),
-                    "profile": "" if choice <= 0 else self.profile.get_active_text(),
-                    "in_start_all": self.in_all.get_active()}
-        return None
+        """Run the dialog until it is saved or cancelled, then always close it."""
+        try:
+            while self.run() == Gtk.ResponseType.OK:
+                name, command = self.name.get_text().strip(), self.command.get_text().strip()
+                problem = None
+                clash = self.cfg.find(name)
+                if not name:
+                    problem = "Give the app a name."
+                elif clash is not None and clash is not self.original:
+                    problem = f"There is already an app called '{name}'."
+                else:
+                    try:
+                        core.resolve_command(command, wrap=False)
+                    except ValueError as exc:
+                        problem = str(exc)
+                if problem:
+                    message(self, problem, kind=Gtk.MessageType.WARNING)
+                    continue
+                choice = self.profile.get_active()
+                return {"name": name, "command": command, "match": self.match.get_text().strip(),
+                        "profile": "" if choice <= 0 else self.profile.get_active_text(),
+                        "in_start_all": self.in_all.get_active()}
+            return None
+        finally:
+            self.destroy()
 
 
 class PickAppDialog(Gtk.Dialog):
@@ -190,16 +194,19 @@ class PickAppDialog(Gtk.Dialog):
         self.show_all()
 
     def result(self):
-        if self.run() != Gtk.ResponseType.OK:
-            return None
-        model, it = self.tree.get_selection().get_selected()
-        if it is None:
-            return None
         try:
-            command = " ".join(shlex.quote(t) for t in core.clean_exec(model[it][1]))
-        except ValueError:
-            command = model[it][1]
-        return {"name": model[it][0], "command": command, "match": "", "profile": "", "in_start_all": True}
+            if self.run() != Gtk.ResponseType.OK:
+                return None
+            model, it = self.tree.get_selection().get_selected()
+            if it is None:
+                return None
+            try:
+                command = " ".join(shlex.quote(t) for t in core.clean_exec(model[it][1]))
+            except ValueError:
+                command = model[it][1]
+            return {"name": model[it][0], "command": command, "match": "", "profile": "", "in_start_all": True}
+        finally:
+            self.destroy()
 
 
 # -------------------------------------------------------------- main window ----

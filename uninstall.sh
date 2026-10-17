@@ -1,5 +1,5 @@
 #!/bin/sh
-# AppTunnel uninstaller v1.1 (build 2026-10-16)
+# AppTunnel uninstaller v1.2 (build 2026-10-16)
 # Author: Paymaan Jafari
 # Removes the program. Your profiles and app list in ~/.config/apptunnel are kept.
 set -eu

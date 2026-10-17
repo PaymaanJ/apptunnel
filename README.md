@@ -4,7 +4,7 @@ Send chosen Linux apps through a WireGuard VPN and leave everything else on your
 A small GTK window on top of [vopono](https://github.com/jamesmcm/vopono): each VPN app runs in its
 own network namespace, so if the tunnel drops that app loses its internet instead of leaking.
 
-Version 1.1 (build 2026-10-16). Author: Paymaan Jafari. License: MIT.
+Version 1.2 (build 2026-10-16). Author: Paymaan Jafari. License: MIT.
 
 ## What you can do in the window
 

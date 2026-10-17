@@ -1,5 +1,5 @@
 #!/bin/sh
-# AppTunnel installer v1.1 (build 2026-10-16)
+# AppTunnel installer v1.2 (build 2026-10-16)
 # Author: Paymaan Jafari
 # Installs AppTunnel system-wide (needs sudo). Re-run it to update.
 set -eu

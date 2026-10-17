@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2 (build 2026-10-16)
+- Fixed: the Add app, Edit app and "Add from installed apps" windows stayed open after Save or Cancel.
+  They now always close.
+
 ## v1.1 (build 2026-10-16)
 - Fixed: a start could fail with "Failed to create veth pair ... File exists" after an interrupted run, until
   the computer was restarted. AppTunnel now offers "Clean up and try again" when it sees that error.

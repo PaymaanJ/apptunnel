@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""AppTunnel root helper v1.1 (build 2026-10-16)
+"""AppTunnel root helper v1.2 (build 2026-10-16)
 Author: Paymaan Jafari
 
 The only part of AppTunnel that runs as root. It is installed root-owned in
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "1.1"
+VERSION = "1.2"
 BUILD_DATE = "2026-10-16"
 
 VOPONO_CANDIDATES = ("/usr/local/bin/vopono", "/usr/bin/vopono")
